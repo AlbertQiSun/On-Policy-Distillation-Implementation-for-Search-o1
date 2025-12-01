@@ -1,0 +1,15 @@
+python train.py \
+ --retriever-type e5 \
+ --retriever-index-path Agentic-Rag/wikipedia_e5_index/merged \
+ --e5-model-path /gpfsnyu/scratch/qs2196/.cache/models/e5-large-v2 \
+ --reasoner-model /gpfsnyu/scratch/qs2196/.cache/models/trained/Qwen3-1.7B-sampled-2 \
+ --teacher-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-32B \
+ --summarizer-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-32B \
+ --dataset hotpotqa \
+ --split train \
+ --output-dir output/search_e5/full-1.7-train-fixed \
+ --max-turns 5 \
+ --max-new-tokens 2048 \
+ --greedy-thinking \
+ --top-k-docs 10 \
+ --max-samples 1000 \

@@ -1,0 +1,16 @@
+python train_lora.py \
+ --retriever-type e5 \
+ --retriever-index-path Agentic-Rag/wikipedia_e5_index/merged \
+ --e5-model-path /gpfsnyu/scratch/qs2196/.cache/models/e5-large-v2 \
+ --reasoner-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-1.7B \
+ --teacher-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-32B \
+ --summarizer-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-32B \
+ --dataset hotpotqa \
+ --split train \
+ --output-dir output/search_e5/hotpot-base-1.7-train-lora-kl002 \
+ --max-turns 5 \
+ --max-new-tokens 2048 \
+ --greedy-thinking \
+ --top-k-docs 10 \
+ --max-samples 1500 \
+ --use-lora
