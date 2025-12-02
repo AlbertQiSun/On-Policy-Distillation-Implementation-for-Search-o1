@@ -1357,7 +1357,15 @@ class InferenceSystem:
             current_seqs = [active_items[idx]['sequence'] for idx in active_indices]
             current_turns = [active_items[idx]['turn'] + 1 for idx in active_indices]
             
-            pbar.set_description(f"Rollout Generation | Step {current_turns[0]}/{self.config.max_turns} | Active Questions: {len(active_indices)}")
+            # Update Description: Generation
+            current_active_items = [active_items[i] for i in active_indices]
+            unique_qids = list(set(item['id'].split('_r')[0] for item in current_active_items))
+            qid_str = ",".join(unique_qids[:2])
+            if len(unique_qids) > 2:
+                qid_str += "..."
+            
+            status_base = f"Turn {current_turns[0]}/{self.config.max_turns} | Qs({len(unique_qids)}): {qid_str} | Active: {len(active_indices)}"
+            pbar.set_description(f"{status_base} | State: Generating")
 
             # Batch Generation
             generated_texts = self.reasoner.generate_batch(
@@ -1417,8 +1425,10 @@ class InferenceSystem:
                 if search_requests:
                     # Filter the answered and time out ones
                     valid_searches = {k: v for k, v in search_requests.items() if not active_items[k]['done']}
-
+                    
+                    num_searches = len(valid_searches)
                     if valid_searches:
+                        pbar.set_description(f"{status_base} | State: Retrieving ({num_searches} queries)")
                         results = self.process_retrievals_parallel(valid_searches)
 
                         # Augment the retrieval results and update turn info
