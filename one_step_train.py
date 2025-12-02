@@ -270,8 +270,7 @@ class Reasoner:
             }
             teacher_outputs = self.teacher_model(**teacher_inputs)
             teacher_logits = teacher_outputs.logits[:, initial_length-1:-1, :]
-            T = 0.6
-            teacher_probs = F.softmax(teacher_logits / T, dim=-1)
+            teacher_probs = F.softmax(teacher_logits, dim=-1)
         student_inputs = {
             "input_ids": generated_ids,
             "attention_mask": (generated_ids != self.student_tokenizer.pad_token_id).long()
@@ -280,12 +279,13 @@ class Reasoner:
         student_logits = student_outputs.logits[:, initial_length-1:-1, :]
 
         
-        student_log_probs = F.log_softmax(student_logits / T, dim=-1)
+        student_log_probs = F.log_softmax(student_logits, dim=-1)
         student_probs = torch.exp(student_log_probs)
 
         mask = (generated_ids[:, initial_length:] != self.student_tokenizer.pad_token_id).long()
         loss_fct = torch.nn.KLDivLoss(reduction="none")
-        kl_loss_per_token = loss_fct(student_log_probs, teacher_probs).sum(dim=-1)
+        # kl_loss_per_token = loss_fct(student_log_probs, teacher_probs).sum(dim=-1)
+        kl_loss_per_token = loss_fct(teacher_probs, student_log_probs).sum(dim=-1)
 
         token_weight_mask = torch.ones_like(kl_loss_per_token)
         new_tokens = generated_ids[:, initial_length:]
