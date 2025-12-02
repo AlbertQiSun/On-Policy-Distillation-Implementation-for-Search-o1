@@ -192,7 +192,7 @@ class Reasoner:
         
         self.prompt_template = prompt_data['user_prompt']
 
-    def genreate_batch(self, sequences: List[str], current_turn: int, max_turns: int) -> List[str]:
+    def generate_batch(self, sequences: List[str], current_turn: int, max_turns: int) -> List[str]:
         """
         Only for the inference and sampling the rollouts for training.
         """
@@ -274,7 +274,7 @@ class Reasoner:
 
         return generated_texts
 
-    def train_on_batch(self, trajectories: List[str, Any]) -> None:
+    def train_on_batch(self, trajectories: List[Dict[str, Any]]) -> None:
         """
         New method to train on a batch of full trajectories
         Accepts a list of full trajectories, use mask to ignore the padding tokens and the tool generated <information>, using gradient accumlation
@@ -292,7 +292,8 @@ class Reasoner:
         total_loss = 0
 
         # Micro-batch processing
-        for i in range(0, total_trajectories, micro_batch):
+        pbar = tqdm(range(0, total_trajectories, micro_batch), desc="Training Step")
+        for i in pbar:
             batch_data = trajectories[i: i + micro_batch]
 
             sequences = [d['sequence'] for d in batch_data]
@@ -386,312 +387,6 @@ class Reasoner:
 
         #Log metrics(simplified)
         self._update_training_metrics(total_loss, 0.0)
-
-    # def generate_response(self, sequence: str, current_turn: int, max_turns: int) -> str:
-    #     """
-    #     Generate a response from the reasoner with stop words for <search> and <answer> tags.
-        
-    #     Args:
-    #         question: The question to answer
-    #         sequence: Optional sequence containing previous responses and information.
-    #                  If None, initializes a new sequence with the question under prompt template.
-            
-    #     Returns:
-    #         Generated response text
-    #     """
-    #     model_inputs = self.student_tokenizer([sequence], return_tensors="pt").to(self.student_model.device)
-    #     initial_length = model_inputs['input_ids'].shape[1]
-
-    #     stopping_criteria = StoppingCriteriaList([
-    #         StopOnStringCriteria(self.student_tokenizer, ["</search>", "</answer>"], initial_length)
-    #     ])
-
-    #     use_teacher_forcing = random.random() < 0.2
-
-    #     with torch.no_grad():
-    #         if use_teacher_forcing:
-    #             bad_words_ids = None
-    #             if current_turn == max_turns:
-    #                 search_token_ids = self.student_tokenizer.encode("<search>", add_special_tokens=False)
-    #                 if search_token_ids:
-    #                     bad_words_ids = [search_token_ids]
-    #             outputs = self.teacher_model.generate(
-    #                 **model_inputs,
-    #                 max_new_tokens=self.config.max_new_tokens,
-    #                 do_sample=False,
-    #                 pad_token_id=self.teacher_tokenizer.eos_token_id,
-    #                 eos_token_id=self.teacher_tokenizer.eos_token_id,
-    #                 stopping_criteria=stopping_criteria,
-    #                 bad_words_ids=bad_words_ids,
-    #                 return_dict_in_generate=True
-    #             )
-    #         else:
-    #             # Use greedy decoding if specified, otherwise use sampling for thinking mode
-    #             if self.config.greedy_thinking:
-    #                 logger.debug("Using greedy decoding for thinking mode")
-    #                 outputs = self.student_model.generate(
-    #                     **model_inputs,
-    #                     max_new_tokens=self.config.max_new_tokens,
-    #                     output_scores=True,
-    #                     return_dict_in_generate=True,
-    #                     do_sample=False,  # Greedy decoding
-    #                     pad_token_id=self.student_tokenizer.eos_token_id,
-    #                     eos_token_id=self.student_tokenizer.eos_token_id,
-    #                     stopping_criteria=stopping_criteria
-    #                 )
-    #             elif self.config.high_randomness_mode:
-    #                 # Use more aggressive random settings for diverse trajectory generation (DPO training)
-    #                 logger.debug("Using high randomness mode for diverse trajectory generation")
-    #                 outputs = self.student_model.generate(
-    #                     **model_inputs,
-    #                     max_new_tokens=self.config.max_new_tokens,
-    #                     output_scores=True,
-    #                     return_dict_in_generate=True,
-    #                     temperature=1.2,  # Higher temperature for more randomness
-    #                     top_p=0.9,        # Higher top_p for more diversity
-    #                     top_k=40,         # Higher top_k for more token options
-    #                     min_p=0.05,       # Minimum probability threshold
-    #                     repetition_penalty=1.1,  # Slight repetition penalty to avoid loops
-    #                     do_sample=True,
-    #                     pad_token_id=self.student_tokenizer.eos_token_id,
-    #                     eos_token_id=self.student_tokenizer.eos_token_id,
-    #                     stopping_criteria=stopping_criteria
-    #                 )
-    #             else:
-    #                 logger.debug("Using standard sampling-based decoding for thinking mode")
-    #                 outputs = self.student_model.generate(
-    #                     **model_inputs,
-    #                     max_new_tokens=self.config.max_new_tokens,
-    #                     output_scores=True,
-    #                     return_dict_in_generate=True,
-    #                     temperature=0.6,  # thinking mode
-    #                     top_p=0.95,
-    #                     top_k=20,
-    #                     min_p=0.0,
-    #                     do_sample=True,
-    #                     pad_token_id=self.student_tokenizer.eos_token_id,
-    #                     eos_token_id=self.student_tokenizer.eos_token_id,
-    #                     stopping_criteria=stopping_criteria
-    #                 )
-        
-    #     # Decode response
-    #     generated_ids = outputs.sequences
-    #     generated_text = self.student_tokenizer.decode(generated_ids[0][initial_length:], skip_special_tokens=True)
-        
-
-    #     with torch.no_grad():
-    #         teacher_inputs = {
-    #             "input_ids": generated_ids,
-    #             "attention_mask": (generated_ids != self.student_tokenizer.pad_token_id).long()
-    #         }
-    #         teacher_outputs = self.teacher_model(**teacher_inputs)
-    #         teacher_logits = teacher_outputs.logits[:, initial_length-1:-1, :]
-    #         teacher_probs = F.softmax(teacher_logits, dim=-1)
-    #     student_inputs = {
-    #         "input_ids": generated_ids,
-    #         "attention_mask": (generated_ids != self.student_tokenizer.pad_token_id).long()
-    #     }
-    #     student_outputs = self.student_model(**student_inputs)
-    #     student_logits = student_outputs.logits[:, initial_length-1:-1, :]
-
-        
-    #     student_log_probs = F.log_softmax(student_logits, dim=-1)
-    #     student_probs = torch.exp(student_log_probs)
-
-    #     mask = (generated_ids[:, initial_length:] != self.student_tokenizer.pad_token_id).long()
-    #     loss_fct = torch.nn.KLDivLoss(reduction="none")
-    #     # kl_loss_per_token = loss_fct(student_log_probs, teacher_probs).sum(dim=-1)
-    #     kl_loss_per_token = loss_fct(teacher_probs, student_log_probs).sum(dim=-1)
-
-    #     token_weight_mask = torch.ones_like(kl_loss_per_token)
-    #     new_tokens = generated_ids[:, initial_length:]
-    #     for tid in self.format_token_ids:
-    #         token_weight_mask[new_tokens == tid] = 5.0
-
-    #     if mask.sum() > 0:
-    #         # loss = (kl_loss_per_token * mask).sum() / mask.sum()
-    #         # entropy = -(student_probs * student_log_probs).sum(dim=-1)
-    #         # mean_entropy = (entropy * mask).sum() / mask.sum()
-    #         # loss = loss - 0.01 * mean_entropy
-    #         weighted_loss = kl_loss_per_token * mask * token_weight_mask
-    #         loss = weighted_loss.sum() / mask.sum()
-    #         entropy = -(student_probs * student_log_probs).sum(dim=-1)
-    #         mean_entropy = (entropy * mask).sum() / mask.sum()
-    #         loss = loss - 0.01 * mean_entropy
-    #     else:
-    #         loss = torch.tensor(0.0, device=self.student_model.device, requires_grad=True)
-        
-    #     loss = loss / self.accumulation_steps
-    #     loss.backward()
-    #     if (self.training_step + 1) % self.accumulation_steps == 0:
-    #         torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=1.0)
-    #         self.optimizer.step()
-    #         self.optimizer.zero_grad()
-
-    #     if mask.sum() > 0:
-    #         avg_kl = (kl_loss_per_token * mask).sum() / mask.sum()
-    #     else:
-    #         avg_kl = 0.0
-
-    #     self._update_training_metrics(loss, avg_kl)
-    #     self._plot_training_metrics()
-
-    #     with torch.no_grad():
-    #         # Use greedy decoding if specified, otherwise use sampling for thinking mode
-    #         if self.config.greedy_thinking:
-    #             logger.debug("Using greedy decoding for thinking mode")
-    #             outputs = self.student_model.generate(
-    #                 **model_inputs,
-    #                 max_new_tokens=self.config.max_new_tokens,
-    #                 output_scores=True,
-    #                 return_dict_in_generate=True,
-    #                 do_sample=False,  # Greedy decoding
-    #                 pad_token_id=self.student_tokenizer.eos_token_id,
-    #                 eos_token_id=self.student_tokenizer.eos_token_id,
-    #                 stopping_criteria=stopping_criteria
-    #             )
-    #         elif self.config.high_randomness_mode:
-    #             # Use more aggressive random settings for diverse trajectory generation (DPO training)
-    #             logger.debug("Using high randomness mode for diverse trajectory generation")
-    #             outputs = self.student_model.generate(
-    #                 **model_inputs,
-    #                 max_new_tokens=self.config.max_new_tokens,
-    #                 output_scores=True,
-    #                 return_dict_in_generate=True,
-    #                 temperature=1.2,  # Higher temperature for more randomness
-    #                 top_p=0.9,        # Higher top_p for more diversity
-    #                 top_k=40,         # Higher top_k for more token options
-    #                 min_p=0.05,       # Minimum probability threshold
-    #                 repetition_penalty=1.1,  # Slight repetition penalty to avoid loops
-    #                 do_sample=True,
-    #                 pad_token_id=self.student_tokenizer.eos_token_id,
-    #                 eos_token_id=self.student_tokenizer.eos_token_id,
-    #                 stopping_criteria=stopping_criteria
-    #             )
-    #         else:
-    #             logger.debug("Using standard sampling-based decoding for thinking mode")
-    #             outputs = self.student_model.generate(
-    #                 **model_inputs,
-    #                 max_new_tokens=self.config.max_new_tokens,
-    #                 output_scores=True,
-    #                 return_dict_in_generate=True,
-    #                 temperature=0.6,  # thinking mode
-    #                 top_p=0.95,
-    #                 top_k=20,
-    #                 min_p=0.0,
-    #                 do_sample=True,
-    #                 pad_token_id=self.student_tokenizer.eos_token_id,
-    #                 eos_token_id=self.student_tokenizer.eos_token_id,
-    #                 stopping_criteria=stopping_criteria
-    #             )
-        
-    #     # Decode response
-    #     generated_text = self.student_tokenizer.decode(outputs.sequences[0][initial_length:], skip_special_tokens=True)
-    #     return generated_text
-
-        # student_logprobs = []
-        # for t in range(len(outputs.scores)):
-        #     score = outputs.scores[t].log_softmax(dim=-1)
-        #     next_token = generated_ids[:, initial_length + t].unsqueeze(-1)
-        #     logprob = torch.gather(score, dim=1, index=next_token).squeeze(-1)
-        #     student_logprobs.append(logprob)
-        # student_logprobs = torch.stack(student_logprobs, dim=1)
-
-        # with torch.no_grad():
-        #     teacher_inputs = {
-        #         'input_ids': generated_ids,
-        #         'attention_mask': (generated_ids != self.student_tokenizer.pad_token_id).long()
-        #     }
-        #     teacher_outputs = self.teacher_model(**teacher_inputs)
-        #     teacher_logits = teacher_outputs.logits[:, :-1].log_softmax(dim=-1)
-        #     shift_ids = generated_ids[:, 1:]
-        #     teacher_logprobs_full = torch.gather(teacher_logits, dim=-1, index=shift_ids.unsqueeze(-1)).squeeze(-1)
-        #     teacher_logprobs = teacher_logprobs_full[:, initial_length-1:]
-
-        # reverse_kl = student_logprobs - teacher_logprobs
-        # advantages = -reverse_kl
-
-        # adv_mean = advantages.mean(dim=1, keepdim=True)
-        # # Check if we can compute std along the last dimension
-        # if advantages.shape[-1] > 1:
-        #     adv_std = advantages.std(dim=-1, keepdim=True)
-        # else:
-        #     # If not enough elements for std, use a small constant to avoid division by zero
-        #     adv_std = torch.ones_like(adv_mean) * 1e-8
-        # advantages = (advantages - adv_mean) / (adv_std + 1e-8)
-
-        # student_outputs = self.student_model(**teacher_inputs)
-        # student_logits = student_outputs.logits[:, :-1].log_softmax(dim=-1)
-        # new_logprobs_full = torch.gather(student_logits, dim=-1, index=shift_ids.unsqueeze(-1)).squeeze(-1)
-        # new_logprobs = new_logprobs_full[:, initial_length-1:]
-
-        # ratio = (new_logprobs - student_logprobs).exp()
-
-        # epsilon = 0.2
-        # surr1 = ratio * advantages
-        # surr2 = torch.clamp(ratio, 1 - epsilon, 1 + epsilon) * advantages
-        # reverse_kl_div = torch.mean(reverse_kl)  # 论文中E[log π_θ - log π_teacher]的平均估计
-
-        # kl_coeff = 0.1  # 从config获取，初始0.01，根据监控调整（论文无此，但作为正则扩展）
-        # loss = -torch.min(surr1, surr2).mean() + kl_coeff * reverse_kl_div
-
-        # self.optimizer.zero_grad()
-        # loss.backward()
-        # torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=1.0)
-        # self.optimizer.step()
-
-        # # Update training metrics and create plots
-        # self._update_training_metrics(loss, surr1, surr2, advantages, ratio, reverse_kl, reverse_kl_div)
-        # self._plot_training_metrics()
-
-        # model_inputs = self.student_tokenizer([sequence], return_tensors="pt").to(self.student_model.device)
-        # initial_length = model_inputs['input_ids'].shape[1]
-        
-        # with torch.no_grad():
-        #     if self.config.greedy_thinking:
-        #         logger.debug("Using greedy decoding for thinking mode")
-        #         generated_ids = self.student_model.generate(
-        #             **model_inputs,
-        #             max_new_tokens=self.config.max_new_tokens,
-        #             do_sample=False,  # Greedy decoding
-        #             pad_token_id=self.student_tokenizer.eos_token_id,
-        #             eos_token_id=self.student_tokenizer.eos_token_id,
-        #             stopping_criteria=stopping_criteria
-        #         )
-        #     elif self.config.high_randomness_mode:
-        #         # Use more aggressive random settings for diverse trajectory generation (DPO training)
-        #         logger.debug("Using high randomness mode for diverse trajectory generation")
-        #         generated_ids = self.student_model.generate(
-        #             **model_inputs,
-        #             max_new_tokens=self.config.max_new_tokens,
-        #             temperature=1.2,  # Higher temperature for more randomness
-        #             top_p=0.9,        # Higher top_p for more diversity
-        #             top_k=40,         # Higher top_k for more token options
-        #             min_p=0.05,       # Minimum probability threshold
-        #             repetition_penalty=1.1,  # Slight repetition penalty to avoid loops
-        #             do_sample=True,
-        #             pad_token_id=self.student_tokenizer.eos_token_id,
-        #             eos_token_id=self.student_tokenizer.eos_token_id,
-        #             stopping_criteria=stopping_criteria
-        #         )
-        #     else:
-        #         logger.debug("Using standard sampling-based decoding for thinking mode")
-        #         generated_ids = self.student_model.generate(
-        #             **model_inputs,
-        #             max_new_tokens=self.config.max_new_tokens,
-        #             temperature=0.6,  # thinking mode
-        #             top_p=0.95,
-        #             top_k=20,
-        #             min_p=0.0,
-        #             do_sample=True,
-        #             pad_token_id=self.student_tokenizer.eos_token_id,
-        #             eos_token_id=self.student_tokenizer.eos_token_id,
-        #             stopping_criteria=stopping_criteria
-        #         )
-
-        # generated_text = self.student_tokenizer.decode(generated_ids[0][initial_length:], skip_special_tokens=True)
-        
-        # return generated_text
 
     def save_model(self):
         self.student_model.save_pretrained(f"{self.config.output_dir}/on_policy_distillation")
@@ -1647,6 +1342,7 @@ class InferenceSystem:
         
         active_indices = list(range(len(active_items)))
 
+        pbar = tqdm(total=self.config.max_turns, desc="Rollout Generation")
         while active_indices:
             # filter the time out ones and the complete ones
             current_indices = []
@@ -1660,11 +1356,13 @@ class InferenceSystem:
             # Prepare the inputs
             current_seqs = [active_items[idx]['sequence'] for idx in active_indices]
             current_turns = [active_items[idx]['turn'] + 1 for idx in active_indices]
+            
+            pbar.set_description(f"Rollout Generation | Step {current_turns[0]}/{self.config.max_turns} | Active Questions: {len(active_indices)}")
 
             # Batch Generation
             generated_texts = self.reasoner.generate_batch(
                 current_seqs,
-                current_turns,
+                current_turns[0],
                 self.config.max_turns
             )
 
@@ -1735,6 +1433,8 @@ class InferenceSystem:
                                 current_item['turns'][-1]['summary'] = summary
                                 # We don't have raw docs here due to process_retrievals_parallel design, 
                                 # but we ensure the key exists for save_final_results
+            pbar.update(1)
+        pbar.close()
         return active_items
 
     def process_retrievals_parallel(self, search_requests: Dict[int, str]) -> Dict[int, str]:
