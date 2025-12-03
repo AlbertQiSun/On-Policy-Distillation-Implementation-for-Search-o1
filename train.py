@@ -203,11 +203,6 @@ class Reasoner:
         model_inputs = self.student_tokenizer(sequences, return_tensors="pt", padding=True).to(self.student_model.device)
         initial_length = model_inputs['input_ids'].shape[1]
 
-        # Setup Stopping Criteria (Batch-Aware)
-        stopping_criteria = StoppingCriteriaList([
-            StopOnStringCriteria(self.student_tokenizer, ["</search>", "</answer>"], initial_length)
-        ])
-
         # Determine Settings based on Turn
         if current_turn == 1:
             # Requirement 1: High Temperature for diversity in the first turn
@@ -236,7 +231,6 @@ class Reasoner:
             "do_sample": True,
             "pad_token_id": self.student_tokenizer.eos_token_id,
             "eos_token_id": self.student_tokenizer.eos_token_id,
-            "stopping_criteria": stopping_criteria
         }
 
         # Generate the rollouts
@@ -336,6 +330,7 @@ class Reasoner:
             with torch.no_grad():
                 teacher_outputs = self.teacher_model(input_ids=input_ids, attention_mask=attention_mask)
                 teacher_probs = F.softmax(teacher_outputs.logits, dim=-1)
+                teacher_log_probs = F.log_softmax(teacher_outputs.logits, dim=-1)
 
             # Calculate Student Logits
             student_outputs = self.student_model(input_ids=input_ids, attention_mask=attention_mask)
@@ -345,7 +340,7 @@ class Reasoner:
 
             # Calculate the KL Divergence Loss
             loss_fct = torch.nn.KLDivLoss(reduction="none")
-            kl_loss = loss_fct(teacher_probs, student_log_probs).sum(dim=-1)
+            kl_loss = loss_fct(teacher_log_probs, student_log_probs).sum(dim=-1)
 
             # Shift Masking (Because Causal LM predict the next token)
             # Loss at t correpsonds to predicting token at t + 1
@@ -448,171 +443,6 @@ class Reasoner:
             plt.tight_layout()
             plt.savefig(os.path.join(plot_dir, 'kl_divergence.png'), dpi=150, bbox_inches='tight')
             plt.close()
-        # plots_dir = self._create_plots_directory()
-
-        # # Plot 1: PPO Loss over time
-        # plt.figure(figsize=(10, 6))
-        # steps = range(1, len(self.training_metrics['ppo_loss']) + 1)
-        # plt.plot(steps, self.training_metrics['ppo_loss'], 'b-', linewidth=2, label='PPO Loss')
-        # plt.xlabel('Training Step')
-        # plt.ylabel('Loss')
-        # plt.title('PPO Loss Over Time')
-        # plt.grid(True, alpha=0.3)
-        # plt.legend()
-        # plt.tight_layout()
-        # plt.savefig(os.path.join(plots_dir, 'ppo_loss.png'), dpi=150, bbox_inches='tight')
-        # plt.close()
-
-        # # Plot 2: Surrogate Losses comparison
-        # plt.figure(figsize=(10, 6))
-        # plt.plot(steps, self.training_metrics['surr1_loss'], 'r-', linewidth=2, label='Surrogate 1 (Unclipped)', alpha=0.7)
-        # plt.plot(steps, self.training_metrics['surr2_loss'], 'g-', linewidth=2, label='Surrogate 2 (Clipped)', alpha=0.7)
-        # plt.xlabel('Training Step')
-        # plt.ylabel('Surrogate Loss')
-        # plt.title('Surrogate Losses Comparison')
-        # plt.grid(True, alpha=0.3)
-        # plt.legend()
-        # plt.tight_layout()
-        # plt.savefig(os.path.join(plots_dir, 'surrogate_losses.png'), dpi=150, bbox_inches='tight')
-        # plt.close()
-
-        # # Plot 3: Advantages Distribution (last 1000 values)
-        # if len(self.training_metrics['advantages']) > 0:
-        #     plt.figure(figsize=(10, 6))
-        #     adv_data = self.training_metrics['advantages'][-1000:]  # Last 1000 advantage values
-        #     plt.hist(adv_data, bins=50, alpha=0.7, color='purple', edgecolor='black')
-        #     plt.axvline(np.mean(adv_data), color='red', linestyle='--', linewidth=2, label='.2f')
-        #     plt.xlabel('Advantage Value')
-        #     plt.ylabel('Frequency')
-        #     plt.title(f'Advantages Distribution (Last {len(adv_data)} values)')
-        #     plt.grid(True, alpha=0.3)
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.savefig(os.path.join(plots_dir, 'advantages_distribution.png'), dpi=150, bbox_inches='tight')
-        #     plt.close()
-
-        # # Plot 4: Probability Ratios Distribution (last 1000 values)
-        # if len(self.training_metrics['ratios']) > 0:
-        #     plt.figure(figsize=(10, 6))
-        #     ratio_data = self.training_metrics['ratios'][-1000:]  # Last 1000 ratio values
-        #     plt.hist(ratio_data, bins=50, alpha=0.7, color='orange', edgecolor='black')
-        #     plt.axvline(1.0, color='red', linestyle='--', linewidth=2, label='Target Ratio = 1.0')
-        #     plt.axvline(1.2, color='green', linestyle=':', linewidth=2, label='Upper Clip = 1.2')
-        #     plt.axvline(0.8, color='green', linestyle=':', linewidth=2, label='Lower Clip = 0.8')
-        #     plt.xlabel('Probability Ratio')
-        #     plt.ylabel('Frequency')
-        #     plt.title(f'Probability Ratios Distribution (Last {len(ratio_data)} values)')
-        #     plt.grid(True, alpha=0.3)
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.savefig(os.path.join(plots_dir, 'ratios_distribution.png'), dpi=150, bbox_inches='tight')
-        #     plt.close()
-
-        # # Plot 5: KL Divergence over time (moving average)
-        # if len(self.training_metrics['kl_divergence']) > 10:
-        #     plt.figure(figsize=(10, 6))
-        #     kl_data = self.training_metrics['kl_divergence']
-        #     # Calculate moving average
-        #     window_size = min(50, len(kl_data))
-        #     if window_size > 1:
-        #         moving_avg = np.convolve(kl_data, np.ones(window_size)/window_size, mode='valid')
-        #         plt.plot(range(window_size, len(kl_data)+1), moving_avg, 'b-', linewidth=2, label=f'KL Divergence (MA-{window_size})')
-        #     else:
-        #         plt.plot(range(1, len(kl_data)+1), kl_data, 'b-', linewidth=2, label='KL Divergence')
-        #     plt.xlabel('Training Step')
-        #     plt.ylabel('KL Divergence')
-        #     plt.title('KL Divergence Between Teacher and Student')
-        #     plt.grid(True, alpha=0.3)
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.savefig(os.path.join(plots_dir, 'kl_divergence.png'), dpi=150, bbox_inches='tight')
-        #     plt.close()
-
-        # # Plot 6: Clipping fraction over time
-        # if len(self.training_metrics['clipped_ratio_fraction']) > 0:
-        #     plt.figure(figsize=(10, 6))
-        #     clip_steps = range(1, len(self.training_metrics['clipped_ratio_fraction']) + 1)
-        #     plt.plot(clip_steps, self.training_metrics['clipped_ratio_fraction'], 'r-', linewidth=2, marker='o', markersize=3)
-        #     plt.xlabel('Training Step')
-        #     plt.ylabel('Fraction of Clipped Ratios')
-        #     plt.title('PPO Clipping Frequency')
-        #     plt.grid(True, alpha=0.3)
-        #     plt.ylim(0, 1)
-        #     plt.tight_layout()
-        #     plt.savefig(os.path.join(plots_dir, 'clipping_fraction.png'), dpi=150, bbox_inches='tight')
-        #     plt.close()
-
-        # # Plot 7: KL Loss over time
-        # if len(self.training_metrics['kl_loss']) > 0:
-        #     plt.figure(figsize=(10, 6))
-        #     kl_loss_steps = range(1, len(self.training_metrics['kl_loss']) + 1)
-        #     plt.plot(kl_loss_steps, self.training_metrics['kl_loss'], 'purple', linewidth=2, label='KL Loss', marker='s', markersize=3)
-        #     plt.xlabel('Training Step')
-        #     plt.ylabel('KL Loss')
-        #     plt.title('KL Loss Trend (Regularization Term)')
-        #     plt.grid(True, alpha=0.3)
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.savefig(os.path.join(plots_dir, 'kl_loss.png'), dpi=150, bbox_inches='tight')
-        #     plt.close()
-
-        # # Plot 8: Combined metrics dashboard
-        # fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-        # fig.suptitle('Training Metrics Dashboard', fontsize=16)
-
-        # # PPO Loss
-        # if len(self.training_metrics['ppo_loss']) > 0:
-        #     axes[0, 0].plot(steps, self.training_metrics['ppo_loss'], 'b-', linewidth=2)
-        #     axes[0, 0].set_title('PPO Loss')
-        #     axes[0, 0].grid(True, alpha=0.3)
-        #     axes[0, 0].set_xlabel('Step')
-        #     axes[0, 0].set_ylabel('Loss')
-
-        # # Advantages histogram
-        # if len(self.training_metrics['advantages']) > 0:
-        #     adv_data = self.training_metrics['advantages'][-500:]
-        #     axes[0, 1].hist(adv_data, bins=30, alpha=0.7, color='purple', edgecolor='black')
-        #     axes[0, 1].axvline(np.mean(adv_data), color='red', linestyle='--', linewidth=2)
-        #     axes[0, 1].set_title('Advantages Distribution')
-        #     axes[0, 1].set_xlabel('Advantage')
-        #     axes[0, 1].set_ylabel('Frequency')
-
-        # # Ratios histogram
-        # if len(self.training_metrics['ratios']) > 0:
-        #     ratio_data = self.training_metrics['ratios'][-500:]
-        #     axes[1, 0].hist(ratio_data, bins=30, alpha=0.7, color='orange', edgecolor='black')
-        #     axes[1, 0].axvline(1.0, color='red', linestyle='--', linewidth=2)
-        #     axes[1, 0].set_title('Probability Ratios')
-        #     axes[1, 0].set_xlabel('Ratio')
-        #     axes[1, 0].set_ylabel('Frequency')
-
-        # # KL Divergence trend
-        # if len(self.training_metrics['kl_divergence']) > 0:
-        #     kl_data = self.training_metrics['kl_divergence']
-        #     if len(kl_data) > 10:
-        #         window_size = min(20, len(kl_data))
-        #         moving_avg = np.convolve(kl_data, np.ones(window_size)/window_size, mode='valid')
-        #         axes[1, 1].plot(range(window_size, len(kl_data)+1), moving_avg, 'g-', linewidth=2)
-        #     else:
-        #         axes[1, 1].plot(range(1, len(kl_data)+1), kl_data, 'g-', linewidth=2)
-        #     axes[1, 1].set_title('KL Divergence Trend')
-        #     axes[1, 1].grid(True, alpha=0.3)
-        #     axes[1, 1].set_xlabel('Step')
-        #     axes[1, 1].set_ylabel('KL')
-
-        # # KL Loss
-        # if len(self.training_metrics['kl_loss']) > 0:
-        #     axes[1, 2].plot(range(1, len(self.training_metrics['kl_loss'])+1), self.training_metrics['kl_loss'], 'purple', linewidth=2)
-        #     axes[1, 2].set_title('KL Loss (Regularization)')
-        #     axes[1, 2].grid(True, alpha=0.3)
-        #     axes[1, 2].set_xlabel('Step')
-        #     axes[1, 2].set_ylabel('KL Loss')
-
-        # plt.tight_layout()
-        # plt.savefig(os.path.join(plots_dir, 'training_dashboard.png'), dpi=150, bbox_inches='tight')
-        # plt.close()
-
-        # logger.info(f"Training plots updated at step {self.training_step}")
 
 class Summarizer:
     """Summarizes retrieved documents for the reasoner."""
@@ -650,6 +480,56 @@ class Summarizer:
             prompt_data = yaml.safe_load(f)
         
         self.prompt_template = prompt_data['user_prompt']
+
+    def summarize_batch(self, queries: List[str], documents_list: List[List[str]]) -> List[str]:
+        """GPU Batch processing for summaries"""
+        prompts = []
+        for question, documents in zip(queries, documents_list):
+            combined_docs = "\n\n".join(f"Document {i+1}: {doc}" for i, doc in enumerate(documents))
+            prompt = self.prompt_template.format(question=question, documents=combined_docs)
+            messages = [{"role": "user", "content": prompt}]
+            
+            # Just deal with the prompt without any other tokenize
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False
+            )
+            prompts.append(text)
+        
+        # Batch tokenization
+        self.tokenizer.padding_side = "left"
+        model_inputs = self.tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=4096).to(self.model.device)
+        input_length = model_inputs["input_ids"].shape[1]
+
+        # GPU Batch Generation
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **model_inputs,
+                max_new_tokens=1024,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+        
+        summaries = []
+        for i in range(len(prompts)):
+            gen_tokens = generated_ids[i][input_length:]
+            summary = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
+            # Do the extraction logic
+            if "### Extracted Information" in summary:
+                start_idx = summary.find("### Extracted Information")
+                if start_idx != -1:
+                    summary - summary[start_idx + len("### Extracted Information"):].strip()
+                    if "\n\n" in summary:
+                        summary = summary.split("\n\n")[0]
+                    if "\n###" in summary:
+                        summary = summary.split("\n###")[0]
+                    summaries.append(summary.strip())
+            summaries.append(summary.strip())
+
+        return summaries
     
     def summarize_documents(self, question: str, documents: List[str]) -> str:
         """
@@ -1428,24 +1308,50 @@ class InferenceSystem:
                     
                     num_searches = len(valid_searches)
                     if valid_searches:
-                        pbar.set_description(f"{status_base} | State: Retrieving ({num_searches} queries)")
-                        results = self.process_retrievals_parallel(valid_searches)
+                        pbar.set_description(f"{status_base} | State: Retrieving & Summarizing")
+                        retrieved_docs_map = self.process_retrievals_only(valid_searches)
 
-                        # Augment the retrieval results and update turn info
+                        # Assemble the batch for GPU summarization
+                        indices = list(retrieved_docs_map.keys())
+                        queries = [valid_searches[idx] for idx in indices]
+                        docs_list = [retrieved_docs_map[idx] for idx in indices]
+
+                        #call the new batch summarize
+                        summaries = self.summarizer.summarize_batch(queries, docs_list)
+
+                        results = {idx: summ for idx, summ in zip(indices, summaries)}
+
+                        # Update Sequence
                         for idx, summary in results.items():
-                            info_block = f"\n<information>\n{summary}\n</information>\n"
+                            info_block = f"\n<information>\n{summary}\n<information>"
                             active_items[idx]['sequence'] += info_block
-                            
-                            # Update the last turn info with retrieval results
-                            # Note: item was updated in the loop above, so we need to access it again
-                            current_item = active_items[idx]
-                            if current_item['turns']:
-                                current_item['turns'][-1]['summary'] = summary
-                                # We don't have raw docs here due to process_retrievals_parallel design, 
-                                # but we ensure the key exists for save_final_results
+
+                            if active_items[idx]['turns']:
+                                current_turn = active_items[idx]['turns'][-1]
+                                
+                                current_turn['summary'] = summary
+                                current_turn['retrieved_docs'] = retrieved_docs_map[idx]
             pbar.update(1)
         pbar.close()
         return active_items
+
+    def process_retrievals_only(self, search_requests: Dict[int, str]) -> Dict[int, str]:
+        results = {}
+        def run_single_retrieval(idx, query):
+            try:
+                docs = self.retriever.search(query, num=self.config.top_k_docs)
+                doc_texts = [str(d) for d in docs]
+                return idx, doc_texts
+            except Exception as e:
+                logger.error(f"Retrieval failed for {idx}: {e}")
+                return idx, []
+        with ThreadPoolExecutor(max_workers=self.config.num_retrieval_threads) as executor:
+            futures = [executor.submit(run_single_retrieval, idx, query) for idx, query in search_requests.items()]
+            for future in futures:
+                idx, res = future.result()
+                results[idx] = res
+        return results
+
 
     def process_retrievals_parallel(self, search_requests: Dict[int, str]) -> Dict[int, str]:
         """

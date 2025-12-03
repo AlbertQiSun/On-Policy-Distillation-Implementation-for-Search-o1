@@ -7,13 +7,12 @@ python train.py \
  --summarizer-model /gpfsnyu/scratch/qs2196/.cache/models/Qwen3-32B \
  --dataset hotpotqa \
  --split train \
- --output-dir output/search_e5/full-1.7-train-fixed \
+ --output-dir output/search_e5/full-1.7-train-batch \
  --max-turns 5 \
  --max-new-tokens 2048 \
- --greedy-thinking \
  --top-k-docs 10 \
  --max-samples 80 \
- --batch-size 8 \
+ --batch-size 4 \
  --num-rollouts 8 \
  --train-micro-batch-size 2 \
  --num-retrieval-threads 8
